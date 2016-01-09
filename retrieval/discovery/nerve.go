@@ -16,7 +16,6 @@ package discovery
 import (
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -24,35 +23,26 @@ import (
 	"github.com/samuel/go-zookeeper/zk"
 
 	"github.com/prometheus/prometheus/config"
-	"github.com/prometheus/prometheus/util/strutil"
 )
 
 const (
-	serversetNodePrefix = "member_"
+	nerveNodePrefix = "member_"
 
-	serversetLabelPrefix         = model.MetaLabelPrefix + "serverset_"
-	serversetStatusLabel         = serversetLabelPrefix + "status"
-	serversetPathLabel           = serversetLabelPrefix + "path"
-	serversetEndpointLabelPrefix = serversetLabelPrefix + "endpoint"
-	serversetShardLabel          = serversetLabelPrefix + "shard"
+	nerveLabelPrefix         = model.MetaLabelPrefix + "nerve_"
+	nervePathLabel           = nerveLabelPrefix + "path"
+	nerveEndpointLabelPrefix = nerveLabelPrefix + "endpoint"
 )
 
-type serversetMember struct {
-	ServiceEndpoint     serversetEndpoint
-	AdditionalEndpoints map[string]serversetEndpoint
-	Status              string `json:"status"`
-	Shard               int    `json:"shard"`
+type nerveMember struct {
+	Host string `json:"host"`
+	Port int    `json:"port"`
+	Name string `json:"name"`
 }
 
-type serversetEndpoint struct {
-	Host string
-	Port int
-}
-
-// ServersetDiscovery retrieves target information from a Serverset server
+// NerveDiscovery retrieves target information from a Nerve server
 // and updates them via watches.
-type ServersetDiscovery struct {
-	conf       *config.ServersetSDConfig
+type NerveDiscovery struct {
+	conf       *config.NerveSDConfig
 	conn       *zk.Conn
 	mu         sync.RWMutex
 	sources    map[string]*config.TargetGroup
@@ -61,15 +51,15 @@ type ServersetDiscovery struct {
 	treeCaches []*zookeeperTreeCache
 }
 
-// NewServersetDiscovery returns a new ServersetDiscovery for the given config.
-func NewServersetDiscovery(conf *config.ServersetSDConfig) *ServersetDiscovery {
+// NewNerveDiscovery returns a new NerveDiscovery for the given config.
+func NewNerveDiscovery(conf *config.NerveSDConfig) *NerveDiscovery {
 	conn, _, err := zk.Connect(conf.Servers, time.Duration(conf.Timeout))
 	conn.SetLogger(zookeeperLogger{})
 	if err != nil {
 		return nil
 	}
 	updates := make(chan zookeeperTreeCacheEvent)
-	sd := &ServersetDiscovery{
+	sd := &NerveDiscovery{
 		conf:    conf,
 		conn:    conn,
 		updates: updates,
@@ -83,7 +73,7 @@ func NewServersetDiscovery(conf *config.ServersetSDConfig) *ServersetDiscovery {
 }
 
 // Sources implements the TargetProvider interface.
-func (sd *ServersetDiscovery) Sources() []string {
+func (sd *NerveDiscovery) Sources() []string {
 	sd.mu.RLock()
 	defer sd.mu.RUnlock()
 	srcs := []string{}
@@ -93,7 +83,7 @@ func (sd *ServersetDiscovery) Sources() []string {
 	return srcs
 }
 
-func (sd *ServersetDiscovery) processUpdates() {
+func (sd *NerveDiscovery) processUpdates() {
 	defer sd.conn.Close()
 	for event := range sd.updates {
 		tg := &config.TargetGroup{
@@ -101,7 +91,7 @@ func (sd *ServersetDiscovery) processUpdates() {
 		}
 		sd.mu.Lock()
 		if event.Data != nil {
-			labelSet, err := parseServersetMember(*event.Data, event.Path)
+			labelSet, err := parseNerveMember(*event.Data, event.Path)
 			if err == nil {
 				tg.Targets = []model.LabelSet{*labelSet}
 				sd.sources[event.Path] = tg
@@ -123,7 +113,7 @@ func (sd *ServersetDiscovery) processUpdates() {
 }
 
 // Run implements the TargetProvider interface.
-func (sd *ServersetDiscovery) Run(ch chan<- config.TargetGroup, done <-chan struct{}) {
+func (sd *NerveDiscovery) Run(ch chan<- config.TargetGroup, done <-chan struct{}) {
 	// Send on everything we have seen so far.
 	sd.mu.Lock()
 	for _, targetGroup := range sd.sources {
@@ -139,32 +129,20 @@ func (sd *ServersetDiscovery) Run(ch chan<- config.TargetGroup, done <-chan stru
 	}
 }
 
-func parseServersetMember(data []byte, path string) (*model.LabelSet, error) {
-	member := serversetMember{}
+func parseNerveMember(data []byte, path string) (*model.LabelSet, error) {
+	member := nerveMember{}
 	err := json.Unmarshal(data, &member)
 	if err != nil {
-		return nil, fmt.Errorf("error unmarshaling serverset member %q: %s", path, err)
+		return nil, fmt.Errorf("error unmarshaling nerve member %q: %s", path, err)
 	}
 
 	labels := model.LabelSet{}
-	labels[serversetPathLabel] = model.LabelValue(path)
+	labels[nervePathLabel] = model.LabelValue(path)
 	labels[model.AddressLabel] = model.LabelValue(
-		fmt.Sprintf("%s:%d", member.ServiceEndpoint.Host, member.ServiceEndpoint.Port))
+		fmt.Sprintf("%s:%d", member.Host, member.Port))
 
-	labels[serversetEndpointLabelPrefix+"_host"] = model.LabelValue(member.ServiceEndpoint.Host)
-	labels[serversetEndpointLabelPrefix+"_port"] = model.LabelValue(fmt.Sprintf("%d", member.ServiceEndpoint.Port))
-
-	for name, endpoint := range member.AdditionalEndpoints {
-		cleanName := model.LabelName(strutil.SanitizeLabelName(name))
-		labels[serversetEndpointLabelPrefix+"_host_"+cleanName] = model.LabelValue(
-			endpoint.Host)
-		labels[serversetEndpointLabelPrefix+"_port_"+cleanName] = model.LabelValue(
-			fmt.Sprintf("%d", endpoint.Port))
-
-	}
-
-	labels[serversetStatusLabel] = model.LabelValue(member.Status)
-	labels[serversetShardLabel] = model.LabelValue(strconv.Itoa(member.Shard))
+	labels[nerveEndpointLabelPrefix+"_host"] = model.LabelValue(member.Host)
+	labels[nerveEndpointLabelPrefix+"_port"] = model.LabelValue(fmt.Sprintf("%d", member.Port))
 
 	return &labels, nil
 }
