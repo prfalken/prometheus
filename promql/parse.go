@@ -48,7 +48,7 @@ func (e *ParseErr) Error() string {
 	return fmt.Sprintf("parse error at line %d, char %d: %s", e.Line, e.Pos, e.Err)
 }
 
-// ParseStmts parses the input and returns the resulting statements or any occuring error.
+// ParseStmts parses the input and returns the resulting statements or any occurring error.
 func ParseStmts(input string) (Statements, error) {
 	p := newParser(input)
 
@@ -673,7 +673,10 @@ func (p *parser) labels() model.LabelNames {
 	labels := model.LabelNames{}
 	if p.peek().typ != itemRightParen {
 		for {
-			id := p.expect(itemIdentifier, ctx)
+			id := p.next()
+			if !isLabel(id.val) {
+				p.errorf("unexpected %s in %s, expected label", id.desc(), ctx)
+			}
 			labels = append(labels, model.LabelName(id.val))
 
 			if p.peek().typ != itemComma {

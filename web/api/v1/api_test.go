@@ -609,7 +609,7 @@ func TestParseDuration(t *testing.T) {
 }
 
 func TestOptionsMethod(t *testing.T) {
-	r := route.New()
+	r := route.New(nil)
 	api := &API{}
 	api.Register(r)
 

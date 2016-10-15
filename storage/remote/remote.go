@@ -24,6 +24,7 @@ import (
 	influx "github.com/influxdb/influxdb/client"
 
 	"github.com/prometheus/prometheus/config"
+	"github.com/prometheus/prometheus/relabel"
 	"github.com/prometheus/prometheus/storage/remote/graphite"
 	"github.com/prometheus/prometheus/storage/remote/influxdb"
 	"github.com/prometheus/prometheus/storage/remote/opentsdb"
@@ -33,6 +34,7 @@ import (
 type Storage struct {
 	queues         []*StorageQueueManager
 	externalLabels model.LabelSet
+	relabelConfigs []*config.RelabelConfig
 	mtx            sync.RWMutex
 }
 
@@ -42,21 +44,22 @@ func (s *Storage) ApplyConfig(conf *config.Config) error {
 	defer s.mtx.Unlock()
 
 	s.externalLabels = conf.GlobalConfig.ExternalLabels
+	s.relabelConfigs = conf.RemoteWriteConfig.WriteRelabelConfigs
 	return nil
 }
 
 // New returns a new remote Storage.
-func New(o *Options) *Storage {
+func New(o *Options) (*Storage, error) {
 	s := &Storage{}
 	if o.GraphiteAddress != "" {
 		c := graphite.NewClient(
 			o.GraphiteAddress, o.GraphiteTransport,
 			o.StorageTimeout, o.GraphitePrefix)
-		s.queues = append(s.queues, NewStorageQueueManager(c, 100*1024))
+		s.queues = append(s.queues, NewStorageQueueManager(c, nil))
 	}
 	if o.OpentsdbURL != "" {
 		c := opentsdb.NewClient(o.OpentsdbURL, o.StorageTimeout)
-		s.queues = append(s.queues, NewStorageQueueManager(c, 100*1024))
+		s.queues = append(s.queues, NewStorageQueueManager(c, nil))
 	}
 	if o.InfluxdbURL != nil {
 		conf := influx.Config{
@@ -67,12 +70,12 @@ func New(o *Options) *Storage {
 		}
 		c := influxdb.NewClient(conf, o.InfluxdbDatabase, o.InfluxdbRetentionPolicy)
 		prometheus.MustRegister(c)
-		s.queues = append(s.queues, NewStorageQueueManager(c, 100*1024))
+		s.queues = append(s.queues, NewStorageQueueManager(c, nil))
 	}
 	if len(s.queues) == 0 {
-		return nil
+		return nil, nil
 	}
-	return s
+	return s, nil
 }
 
 // Options contains configuration parameters for a remote storage.
@@ -89,10 +92,10 @@ type Options struct {
 	GraphitePrefix          string
 }
 
-// Run starts the background processing of the storage queues.
-func (s *Storage) Run() {
+// Start starts the background processing of the storage queues.
+func (s *Storage) Start() {
 	for _, q := range s.queues {
-		go q.Run()
+		q.Start()
 	}
 }
 
@@ -116,7 +119,13 @@ func (s *Storage) Append(smpl *model.Sample) error {
 			snew.Metric[ln] = lv
 		}
 	}
+	snew.Metric = model.Metric(
+		relabel.Process(model.LabelSet(snew.Metric), s.relabelConfigs...))
 	s.mtx.RUnlock()
+
+	if snew.Metric == nil {
+		return nil
+	}
 
 	for _, q := range s.queues {
 		q.Append(&snew)
@@ -129,18 +138,4 @@ func (s *Storage) Append(smpl *model.Sample) error {
 // of asking for throttling.
 func (s *Storage) NeedsThrottling() bool {
 	return false
-}
-
-// Describe implements prometheus.Collector.
-func (s *Storage) Describe(ch chan<- *prometheus.Desc) {
-	for _, q := range s.queues {
-		q.Describe(ch)
-	}
-}
-
-// Collect implements prometheus.Collector.
-func (s *Storage) Collect(ch chan<- prometheus.Metric) {
-	for _, q := range s.queues {
-		q.Collect(ch)
-	}
 }

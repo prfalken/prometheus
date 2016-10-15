@@ -115,7 +115,7 @@ type scrapePool struct {
 }
 
 func newScrapePool(cfg *config.ScrapeConfig, app storage.SampleAppender) *scrapePool {
-	client, err := newHTTPClient(cfg)
+	client, err := NewHTTPClient(cfg)
 	if err != nil {
 		// Any errors that could occur here should be caught during config validation.
 		log.Errorf("Error creating HTTP client for job %q: %s", cfg.JobName, err)
@@ -167,7 +167,7 @@ func (sp *scrapePool) reload(cfg *config.ScrapeConfig) {
 	sp.mtx.Lock()
 	defer sp.mtx.Unlock()
 
-	client, err := newHTTPClient(cfg)
+	client, err := NewHTTPClient(cfg)
 	if err != nil {
 		// Any errors that could occur here should be caught during config validation.
 		log.Errorf("Error creating HTTP client for job %q: %s", cfg.JobName, err)
@@ -308,7 +308,7 @@ type targetScraper struct {
 	client *http.Client
 }
 
-const acceptHeader = `application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,text/plain;version=0.0.4;q=0.3,application/json;schema="prometheus/telemetry";version=0.0.2;q=0.2,*/*;q=0.1`
+const acceptHeader = `application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited;q=0.7,text/plain;version=0.0.4;q=0.3,*/*;q=0.1`
 
 func (s *targetScraper) scrape(ctx context.Context, ts time.Time) (model.Samples, error) {
 	req, err := http.NewRequest("GET", s.URL().String(), nil)

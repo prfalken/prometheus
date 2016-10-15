@@ -37,7 +37,7 @@ check_license:
 	@./scripts/check_license.sh
 
 test:
-	@echo ">> running tests"
+	@echo ">> running short tests"
 	@$(GO) test -short $(pkgs)
 
 format:
@@ -67,6 +67,7 @@ assets:
 	@$(GO) fmt ./web/ui
 
 promu:
+	@echo ">> fetching promu"
 	@GOOS=$(shell uname -s | tr A-Z a-z) \
 	GOARCH=$(subst x86_64,amd64,$(patsubst i%86,386,$(shell uname -m))) \
 	$(GO) get -u github.com/prometheus/promu

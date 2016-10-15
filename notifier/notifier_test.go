@@ -153,7 +153,6 @@ func TestHandlerSendAll(t *testing.T) {
 	h := New(&Options{
 		AlertmanagerURLs: []string{server1.URL, server2.URL},
 		Timeout:          time.Minute,
-		ExternalLabels:   model.LabelSet{"a": "b"},
 	})
 
 	for i := range make([]struct{}, maxBatchSize) {
@@ -165,7 +164,6 @@ func TestHandlerSendAll(t *testing.T) {
 		expected = append(expected, &model.Alert{
 			Labels: model.LabelSet{
 				"alertname": model.LabelValue(fmt.Sprintf("%d", i)),
-				"a":         "b",
 			},
 		})
 	}
@@ -187,16 +185,66 @@ func TestHandlerSendAll(t *testing.T) {
 	}
 }
 
+func TestExternalLabels(t *testing.T) {
+	h := New(&Options{
+		QueueCapacity:  3 * maxBatchSize,
+		ExternalLabels: model.LabelSet{"a": "b"},
+		RelabelConfigs: []*config.RelabelConfig{
+			{
+				SourceLabels: model.LabelNames{"alertname"},
+				TargetLabel:  "a",
+				Action:       "replace",
+				Regex:        config.MustNewRegexp("externalrelabelthis"),
+				Replacement:  "c",
+			},
+		},
+	})
+
+	// This alert should get the external label attached.
+	h.Send(&model.Alert{
+		Labels: model.LabelSet{
+			"alertname": "test",
+		},
+	})
+
+	// This alert should get the external label attached, but then set to "c"
+	// through relabelling.
+	h.Send(&model.Alert{
+		Labels: model.LabelSet{
+			"alertname": "externalrelabelthis",
+		},
+	})
+
+	expected := []*model.Alert{
+		{
+			Labels: model.LabelSet{
+				"alertname": "test",
+				"a":         "b",
+			},
+		},
+		{
+			Labels: model.LabelSet{
+				"alertname": "externalrelabelthis",
+				"a":         "c",
+			},
+		},
+	}
+
+	if !alertsEqual(expected, h.queue) {
+		t.Errorf("Expected alerts %v, got %v", expected, h.queue)
+	}
+}
+
 func TestHandlerRelabel(t *testing.T) {
 	h := New(&Options{
 		QueueCapacity: 3 * maxBatchSize,
 		RelabelConfigs: []*config.RelabelConfig{
-			&config.RelabelConfig{
+			{
 				SourceLabels: model.LabelNames{"alertname"},
 				Action:       "drop",
 				Regex:        config.MustNewRegexp("drop"),
 			},
-			&config.RelabelConfig{
+			{
 				SourceLabels: model.LabelNames{"alertname"},
 				TargetLabel:  "alertname",
 				Action:       "replace",
@@ -221,7 +269,7 @@ func TestHandlerRelabel(t *testing.T) {
 	})
 
 	expected := []*model.Alert{
-		&model.Alert{
+		{
 			Labels: model.LabelSet{
 				"alertname": "renamed",
 			},

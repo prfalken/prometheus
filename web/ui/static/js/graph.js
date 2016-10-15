@@ -364,7 +364,10 @@ Prometheus.Graph.prototype.submitQuery = function() {
           self.showError("Error executing query: " + err);
         }
       },
-      complete: function() {
+      complete: function(xhr, resp) {
+        if (resp == "abort") {
+          return;
+        }
         var duration = new Date().getTime() - startTime;
         self.evalStats.html("Load time: " + duration + "ms <br /> Resolution: " + resolution + "s");
         self.spinner.hide();
@@ -777,10 +780,47 @@ function init() {
     url: PATH_PREFIX + "/static/js/graph_template.handlebar",
     success: function(data) {
       graphTemplate = Handlebars.compile(data);
-      var Page = new Prometheus.Page();
-      Page.init();
+      if (isDeprecatedGraphURL()) {
+        redirectToMigratedURL();
+      } else {
+        var Page = new Prometheus.Page();
+        Page.init();
+      }
     }
   });
+}
+
+
+
+// These two methods (isDeprecatedGraphURL and redirectToMigratedURL)
+// are added only for backward compatibility to old query format.
+function isDeprecatedGraphURL() {
+  if (window.location.hash.length == 0) {
+    return false;
+  }
+
+  var decodedFragment = decodeURIComponent(window.location.hash);
+  try {
+      JSON.parse(decodedFragment.substr(1)); // drop the hash #
+  } catch (e) {
+      return false;
+  }
+  return true;
+}
+
+function redirectToMigratedURL() {
+  var decodedFragment = decodeURIComponent(window.location.hash);
+  var graphOptions = JSON.parse(decodedFragment.substr(1)); // drop the hash #
+  var queryObject = {};
+
+  graphOptions.map(function(options, index){
+    var prefix = "g" + index + ".";
+    Object.keys(options).forEach(function(key) {
+      queryObject[prefix + key] = options[key];
+    });
+  });
+  var query = $.param(queryObject);
+  window.location = "/graph?" + query;
 }
 
 $(init);

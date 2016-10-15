@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package local
+package chunk
 
 import (
 	"encoding/binary"
@@ -85,7 +85,7 @@ import (
 // new chunk.
 //
 // From the 3rd timestamp on, a double-delta (ΔΔt) is saved:
-//   (t_{n} - t_{n-1}) - (t_{n-2} - t_{n-1})
+//   (t_{n} - t_{n-1}) - (t_{n-1} - t_{n-2})
 // To perform that operation, the last Δt is saved at the end of the chunk for
 // as long the chunk is not closed yet (see above).
 //
@@ -195,11 +195,11 @@ const (
 	varbitFirstValueDeltaOffset     = 38
 	// The following are in the "footer" and only usable if the chunk is
 	// still open.
-	varbitCountOffsetBitOffset           = chunkLen - 9
-	varbitLastTimeDeltaOffset            = chunkLen - 7
-	varbitLastValueDeltaOffset           = chunkLen - 4
-	varbitLastLeadingZerosCountOffset    = chunkLen - 4
-	varbitLastSignificantBitsCountOffset = chunkLen - 3
+	varbitCountOffsetBitOffset           = ChunkLen - 9
+	varbitLastTimeDeltaOffset            = ChunkLen - 7
+	varbitLastValueDeltaOffset           = ChunkLen - 4
+	varbitLastLeadingZerosCountOffset    = ChunkLen - 4
+	varbitLastSignificantBitsCountOffset = ChunkLen - 3
 
 	varbitFirstSampleBitOffset  uint16 = 0 // Symbolic, don't really read or write here.
 	varbitSecondSampleBitOffset uint16 = 1 // Symbolic, don't really read or write here.
@@ -240,24 +240,24 @@ var varbitWorstCaseBitsPerSample = map[varbitValueEncoding]int{
 type varbitChunk []byte
 
 // newVarbitChunk returns a newly allocated varbitChunk.  For simplicity, all
-// varbit chunks must have the length as determined by the chunkLen constant.
+// varbit chunks must have the length as determined by the ChunkLen constant.
 func newVarbitChunk(enc varbitValueEncoding) *varbitChunk {
-	if chunkLen < varbitMinLength || chunkLen > varbitMaxLength {
+	if ChunkLen < varbitMinLength || ChunkLen > varbitMaxLength {
 		panic(fmt.Errorf(
 			"invalid chunk length of %d bytes, need at least %d bytes and at most %d bytes",
-			chunkLen, varbitMinLength, varbitMaxLength,
+			ChunkLen, varbitMinLength, varbitMaxLength,
 		))
 	}
 	if enc > varbitDirectEncoding {
 		panic(fmt.Errorf("unknown varbit value encoding: %v", enc))
 	}
-	c := make(varbitChunk, chunkLen)
+	c := make(varbitChunk, ChunkLen)
 	c.setValueEncoding(enc)
 	return &c
 }
 
-// add implements chunk.
-func (c *varbitChunk) add(s model.SamplePair) ([]chunk, error) {
+// Add implements chunk.
+func (c *varbitChunk) Add(s model.SamplePair) ([]Chunk, error) {
 	offset := c.nextSampleOffset()
 	switch {
 	case c.closed():
@@ -272,20 +272,20 @@ func (c *varbitChunk) add(s model.SamplePair) ([]chunk, error) {
 	return c.addLaterSample(s, offset)
 }
 
-// clone implements chunk.
-func (c varbitChunk) clone() chunk {
+// Clone implements chunk.
+func (c varbitChunk) Clone() Chunk {
 	clone := make(varbitChunk, len(c))
 	copy(clone, c)
 	return &clone
 }
 
-// newIterator implements chunk.
-func (c varbitChunk) newIterator() chunkIterator {
+// NewIterator implements chunk.
+func (c varbitChunk) NewIterator() Iterator {
 	return newVarbitChunkIterator(c)
 }
 
-// marshal implements chunk.
-func (c varbitChunk) marshal(w io.Writer) error {
+// Marshal implements chunk.
+func (c varbitChunk) Marshal(w io.Writer) error {
 	n, err := w.Write(c)
 	if err != nil {
 		return err
@@ -296,8 +296,8 @@ func (c varbitChunk) marshal(w io.Writer) error {
 	return nil
 }
 
-// marshalToBuf implements chunk.
-func (c varbitChunk) marshalToBuf(buf []byte) error {
+// MarshalToBuf implements chunk.
+func (c varbitChunk) MarshalToBuf(buf []byte) error {
 	n := copy(buf, c)
 	if n != len(c) {
 		return fmt.Errorf("wanted to copy %d bytes to buffer, copied %d", len(c), n)
@@ -305,25 +305,31 @@ func (c varbitChunk) marshalToBuf(buf []byte) error {
 	return nil
 }
 
-// unmarshal implements chunk.
-func (c varbitChunk) unmarshal(r io.Reader) error {
+// Unmarshal implements chunk.
+func (c varbitChunk) Unmarshal(r io.Reader) error {
 	_, err := io.ReadFull(r, c)
 	return err
 }
 
-// unmarshalFromBuf implements chunk.
-func (c varbitChunk) unmarshalFromBuf(buf []byte) error {
+// UnmarshalFromBuf implements chunk.
+func (c varbitChunk) UnmarshalFromBuf(buf []byte) error {
 	if copied := copy(c, buf); copied != cap(c) {
 		return fmt.Errorf("insufficient bytes copied from buffer during unmarshaling, want %d, got %d", cap(c), copied)
 	}
 	return nil
 }
 
-// encoding implements chunk.
-func (c varbitChunk) encoding() chunkEncoding { return varbit }
+// Encoding implements chunk.
+func (c varbitChunk) Encoding() Encoding { return Varbit }
 
-// firstTime implements chunk.
-func (c varbitChunk) firstTime() model.Time {
+// Utilization implements chunk.
+func (c varbitChunk) Utilization() float64 {
+	// 15 bytes is the length of the chunk footer.
+	return math.Min(float64(c.nextSampleOffset()/8+15)/float64(cap(c)), 1)
+}
+
+// FirstTime implements chunk.
+func (c varbitChunk) FirstTime() model.Time {
 	return model.Time(
 		binary.BigEndian.Uint64(
 			c[varbitFirstTimeOffset:],
@@ -472,7 +478,7 @@ func (c varbitChunk) setLastSample(s model.SamplePair) {
 
 // addFirstSample is a helper method only used by c.add(). It adds timestamp and
 // value as base time and value.
-func (c *varbitChunk) addFirstSample(s model.SamplePair) []chunk {
+func (c *varbitChunk) addFirstSample(s model.SamplePair) []Chunk {
 	binary.BigEndian.PutUint64(
 		(*c)[varbitFirstTimeOffset:],
 		uint64(s.Timestamp),
@@ -483,14 +489,14 @@ func (c *varbitChunk) addFirstSample(s model.SamplePair) []chunk {
 	)
 	c.setLastSample(s) // To simplify handling of single-sample chunks.
 	c.setNextSampleOffset(varbitSecondSampleBitOffset)
-	return []chunk{c}
+	return []Chunk{c}
 }
 
 // addSecondSample is a helper method only used by c.add(). It calculates the
 // first time delta from the provided sample and adds it to the chunk together
 // with the provided sample as the last sample.
-func (c *varbitChunk) addSecondSample(s model.SamplePair) ([]chunk, error) {
-	firstTimeDelta := s.Timestamp - c.firstTime()
+func (c *varbitChunk) addSecondSample(s model.SamplePair) ([]Chunk, error) {
+	firstTimeDelta := s.Timestamp - c.FirstTime()
 	if firstTimeDelta < 0 {
 		return nil, fmt.Errorf("first Δt is less than zero: %v", firstTimeDelta)
 	}
@@ -509,7 +515,7 @@ func (c *varbitChunk) addSecondSample(s model.SamplePair) ([]chunk, error) {
 
 	c.setLastSample(s)
 	c.setNextSampleOffset(varbitThirdSampleBitOffset)
-	return []chunk{c}, nil
+	return []Chunk{c}, nil
 }
 
 // addLastSample isa a helper method only used by c.add() and in other helper
@@ -518,15 +524,15 @@ func (c *varbitChunk) addSecondSample(s model.SamplePair) ([]chunk, error) {
 // adds the very last sample added to this chunk ever, while setLastSample sets
 // the sample most recently added to the chunk so that it can be used for the
 // calculations required to add the next sample.
-func (c *varbitChunk) addLastSample(s model.SamplePair) []chunk {
+func (c *varbitChunk) addLastSample(s model.SamplePair) []Chunk {
 	c.setLastSample(s)
 	(*c)[varbitFlagOffset] |= 0x80
-	return []chunk{c}
+	return []Chunk{c}
 }
 
 // addLaterSample is a helper method only used by c.add(). It adds a third or
 // later sample.
-func (c *varbitChunk) addLaterSample(s model.SamplePair, offset uint16) ([]chunk, error) {
+func (c *varbitChunk) addLaterSample(s model.SamplePair, offset uint16) ([]Chunk, error) {
 	var (
 		lastTime      = c.lastTime()
 		lastTimeDelta = c.lastTimeDelta()
@@ -548,14 +554,14 @@ func (c *varbitChunk) addLaterSample(s model.SamplePair, offset uint16) ([]chunk
 	}
 
 	// Analyze worst case, does it fit? If not, set new sample as the last.
-	if int(offset)+varbitWorstCaseBitsPerSample[encoding] > chunkLen*8 {
+	if int(offset)+varbitWorstCaseBitsPerSample[encoding] > ChunkLen*8 {
 		return c.addLastSample(s), nil
 	}
 
 	// Transcoding/overflow decisions first.
 	if encoding == varbitZeroEncoding && s.Value != lastValue {
 		// Cannot go on with zero encoding.
-		if offset > chunkLen*4 {
+		if offset > ChunkLen*4 {
 			// Chunk already half full. Don't transcode, overflow instead.
 			return addToOverflowChunk(c, s)
 		}
@@ -567,7 +573,7 @@ func (c *varbitChunk) addLaterSample(s model.SamplePair, offset uint16) ([]chunk
 	}
 	if encoding == varbitIntDoubleDeltaEncoding && !isInt32(s.Value-lastValue) {
 		// Cannot go on with int encoding.
-		if offset > chunkLen*4 {
+		if offset > ChunkLen*4 {
 			// Chunk already half full. Don't transcode, overflow instead.
 			return addToOverflowChunk(c, s)
 		}
@@ -593,7 +599,7 @@ func (c *varbitChunk) addLaterSample(s model.SamplePair, offset uint16) ([]chunk
 
 	c.setNextSampleOffset(offset)
 	c.setLastSample(s)
-	return []chunk{c}, nil
+	return []Chunk{c}, nil
 }
 
 func (c varbitChunk) prepForThirdSample(
@@ -903,8 +909,8 @@ func newVarbitChunkIterator(c varbitChunk) *varbitChunkIterator {
 	}
 }
 
-// lastTimestamp implements chunkIterator.
-func (it *varbitChunkIterator) lastTimestamp() (model.Time, error) {
+// lastTimestamp implements Iterator.
+func (it *varbitChunkIterator) LastTimestamp() (model.Time, error) {
 	if it.len == varbitFirstSampleBitOffset {
 		// No samples in the chunk yet.
 		return model.Earliest, it.lastError
@@ -912,19 +918,19 @@ func (it *varbitChunkIterator) lastTimestamp() (model.Time, error) {
 	return it.c.lastTime(), it.lastError
 }
 
-// contains implements chunkIterator.
-func (it *varbitChunkIterator) contains(t model.Time) (bool, error) {
-	last, err := it.lastTimestamp()
+// contains implements Iterator.
+func (it *varbitChunkIterator) Contains(t model.Time) (bool, error) {
+	last, err := it.LastTimestamp()
 	if err != nil {
 		it.lastError = err
 		return false, err
 	}
-	return !t.Before(it.c.firstTime()) &&
+	return !t.Before(it.c.FirstTime()) &&
 		!t.After(last), it.lastError
 }
 
-// scan implements chunkIterator.
-func (it *varbitChunkIterator) scan() bool {
+// scan implements Iterator.
+func (it *varbitChunkIterator) Scan() bool {
 	if it.lastError != nil {
 		return false
 	}
@@ -947,7 +953,7 @@ func (it *varbitChunkIterator) scan() bool {
 		return it.lastError == nil
 	}
 	if it.pos == varbitFirstSampleBitOffset {
-		it.t = it.c.firstTime()
+		it.t = it.c.FirstTime()
 		it.v = it.c.firstValue()
 		it.pos = varbitSecondSampleBitOffset
 		return it.lastError == nil
@@ -1002,9 +1008,9 @@ func (it *varbitChunkIterator) scan() bool {
 	return it.lastError == nil
 }
 
-// findAtOrBefore implements chunkIterator.
-func (it *varbitChunkIterator) findAtOrBefore(t model.Time) bool {
-	if it.len == 0 || t.Before(it.c.firstTime()) {
+// findAtOrBefore implements Iterator.
+func (it *varbitChunkIterator) FindAtOrBefore(t model.Time) bool {
+	if it.len == 0 || t.Before(it.c.FirstTime()) {
 		return false
 	}
 	last := it.c.lastTime()
@@ -1025,7 +1031,7 @@ func (it *varbitChunkIterator) findAtOrBefore(t model.Time) bool {
 		prevT = model.Earliest
 		prevV model.SampleValue
 	)
-	for it.scan() && t.After(it.t) {
+	for it.Scan() && t.After(it.t) {
 		prevT = it.t
 		prevV = it.v
 		// TODO(beorn7): If we are in a repeat, we could iterate forward
@@ -1038,15 +1044,15 @@ func (it *varbitChunkIterator) findAtOrBefore(t model.Time) bool {
 	return it.lastError == nil
 }
 
-// findAtOrAfter implements chunkIterator.
-func (it *varbitChunkIterator) findAtOrAfter(t model.Time) bool {
+// findAtOrAfter implements Iterator.
+func (it *varbitChunkIterator) FindAtOrAfter(t model.Time) bool {
 	if it.len == 0 || t.After(it.c.lastTime()) {
 		return false
 	}
-	first := it.c.firstTime()
+	first := it.c.FirstTime()
 	if !t.After(first) {
 		it.reset()
-		return it.scan()
+		return it.Scan()
 	}
 	if t == it.t {
 		return it.lastError == nil
@@ -1054,23 +1060,23 @@ func (it *varbitChunkIterator) findAtOrAfter(t model.Time) bool {
 	if t.Before(it.t) {
 		it.reset()
 	}
-	for it.scan() && t.After(it.t) {
+	for it.Scan() && t.After(it.t) {
 		// TODO(beorn7): If we are in a repeat, we could iterate forward
 		// much faster.
 	}
 	return it.lastError == nil
 }
 
-// value implements chunkIterator.
-func (it *varbitChunkIterator) value() model.SamplePair {
+// value implements Iterator.
+func (it *varbitChunkIterator) Value() model.SamplePair {
 	return model.SamplePair{
 		Timestamp: it.t,
 		Value:     it.v,
 	}
 }
 
-// err implements chunkIterator.
-func (it *varbitChunkIterator) err() error {
+// err implements Iterator.
+func (it *varbitChunkIterator) Err() error {
 	return it.lastError
 }
 

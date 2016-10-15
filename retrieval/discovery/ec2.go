@@ -15,6 +15,7 @@ package discovery
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -31,16 +32,17 @@ import (
 )
 
 const (
-	ec2Label           = model.MetaLabelPrefix + "ec2_"
-	ec2LabelAZ         = ec2Label + "availability_zone"
-	ec2LabelInstanceID = ec2Label + "instance_id"
-	ec2LabelPublicDNS  = ec2Label + "public_dns_name"
-	ec2LabelPublicIP   = ec2Label + "public_ip"
-	ec2LabelPrivateIP  = ec2Label + "private_ip"
-	ec2LabelSubnetID   = ec2Label + "subnet_id"
-	ec2LabelTag        = ec2Label + "tag_"
-	ec2LabelVPCID      = ec2Label + "vpc_id"
-	subnetSeparator    = ","
+	ec2Label              = model.MetaLabelPrefix + "ec2_"
+	ec2LabelAZ            = ec2Label + "availability_zone"
+	ec2LabelInstanceID    = ec2Label + "instance_id"
+	ec2LabelInstanceState = ec2Label + "instance_state"
+	ec2LabelPublicDNS     = ec2Label + "public_dns_name"
+	ec2LabelPublicIP      = ec2Label + "public_ip"
+	ec2LabelPrivateIP     = ec2Label + "private_ip"
+	ec2LabelSubnetID      = ec2Label + "subnet_id"
+	ec2LabelTag           = ec2Label + "tag_"
+	ec2LabelVPCID         = ec2Label + "vpc_id"
+	subnetSeparator       = ","
 )
 
 // EC2Discovery periodically performs EC2-SD requests. It implements
@@ -112,7 +114,7 @@ func (ed *EC2Discovery) refresh() (*config.TargetGroup, error) {
 					ec2LabelInstanceID: model.LabelValue(*inst.InstanceId),
 				}
 				labels[ec2LabelPrivateIP] = model.LabelValue(*inst.PrivateIpAddress)
-				addr := fmt.Sprintf("%s:%d", *inst.PrivateIpAddress, ed.port)
+				addr := net.JoinHostPort(*inst.PrivateIpAddress, fmt.Sprintf("%d", ed.port))
 				labels[model.AddressLabel] = model.LabelValue(addr)
 
 				if inst.PublicIpAddress != nil {
@@ -121,6 +123,7 @@ func (ed *EC2Discovery) refresh() (*config.TargetGroup, error) {
 				}
 
 				labels[ec2LabelAZ] = model.LabelValue(*inst.Placement.AvailabilityZone)
+				labels[ec2LabelInstanceState] = model.LabelValue(*inst.State.Name)
 
 				if inst.VpcId != nil {
 					labels[ec2LabelVPCID] = model.LabelValue(*inst.VpcId)
