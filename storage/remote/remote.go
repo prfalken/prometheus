@@ -72,6 +72,10 @@ func New(o *Options) (*Storage, error) {
 		prometheus.MustRegister(c)
 		s.queues = append(s.queues, NewStorageQueueManager(c, nil))
 	}
+	if o.Warp10Address != "" {
+		c := warp10.NewClient(o.Warp10Address o.Warp10WriteToken)
+		s.queues = append(s.queues, NewStorageQueueManager(c, nil))
+        }
 	if len(s.queues) == 0 {
 		return nil, nil
 	}
@@ -90,6 +94,8 @@ type Options struct {
 	GraphiteAddress         string
 	GraphiteTransport       string
 	GraphitePrefix          string
+        Warp10Address           string
+        Warp10WriteToken        string
 }
 
 // Start starts the background processing of the storage queues.
