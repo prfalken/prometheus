@@ -13,8 +13,9 @@ func TestClient(t *testing.T) {
 	samples := model.Samples{
 		{
 			Metric: model.Metric{
-				model.MetricNameLabel: "testmetric",
 				"test_label":          "test_label_value1",
+				"test_label2":          "test_label_value2",
+				model.MetricNameLabel: "testmetric",
 			},
 			Timestamp: model.Time(123456789123),
 			Value:     1.23,

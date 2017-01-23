@@ -38,10 +38,10 @@ func (c *Client) Store(samples model.Samples) error {
 		i := 0
 		for l, v := range e.Metric {
 			if l != model.MetricNameLabel {
-				fmt.Fprintf(buffer, "%s=%s", url.QueryEscape(string(l)), url.QueryEscape(string(v)))
 				if i != 0 {
 					buffer.WriteRune(',')
 				}
+				fmt.Fprintf(buffer, "%s=%s", url.QueryEscape(string(l)), url.QueryEscape(string(v)))
 				i++
 			}
 		}
